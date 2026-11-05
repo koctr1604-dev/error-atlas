@@ -1,0 +1,682 @@
+[
+  {
+    "id": "github-actions-resource-not-accessible",
+    "category": "ci",
+    "tool": "GitHub Actions / REST API",
+    "error": "Resource not accessible by integration",
+    "aliases": ["Resource not accessible by personal access token", "GitHub Actions HTTP 403 权限不足"],
+    "summary": "GitHub 拒绝了当前令牌对该 API 资源的操作。先确认实际使用的令牌、目标仓库和端点所需权限，再调整最小授权。",
+    "causes": [
+      {
+        "when": "使用 GITHUB_TOKEN 操作当前仓库的 API",
+        "reason": "作业的有效权限不包含端点所需的读写权限；显式设置某项 permissions 后，未列出的权限会变为 none。",
+        "check": "查看失败端点的官方权限要求、作业 Set up job 中的 GITHUB_TOKEN Permissions，以及响应中的 X-Accepted-GitHub-Permissions（如有）。",
+        "fix": "只在需要的作业上声明端点要求的权限，例如创建 issue 才授予 issues: write。"
+      },
+      {
+        "when": "目标属于另一个仓库或组织",
+        "reason": "GITHUB_TOKEN 的资源范围只覆盖运行工作流的仓库，增加当前仓库 permissions 无法跨越这一范围。",
+        "check": "比对请求 URL 中的资源归属与 github.repository；检查实际令牌对应的 App 安装范围或 PAT 仓库选择。",
+        "fix": "使用限定到目标仓库、权限最小的 GitHub App 安装令牌，或适当的细粒度 PAT，并通过 secret 提供。"
+      },
+      {
+        "when": "失败只出现在 fork 的 pull_request 运行中",
+        "reason": "这类运行的写权限通常会降为只读，声明 write 不一定能获得写令牌。",
+        "check": "检查触发事件、PR 来源与该次运行的实际权限，不以仓库默认设置代替运行证据。",
+        "fix": "让不可信 PR 仅执行只读检查；确需写操作时，设计独立且受信任的审批或发布流程。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "为创建 issue 的作业声明最小权限",
+        "language": "yaml",
+        "code": "# 放入确实需要创建 issue 的 jobs.<job_id> 下\npermissions:\n  contents: read\n  issues: write",
+        "kind": "fix",
+        "note": "这是特定端点示例；其他 API 需要按其文档替换权限。片段本身不会创建 issue。"
+      }
+    ],
+    "cautions": ["403 也可能来自限流或其他策略；只有匹配本条信息时才按令牌权限排查。", "不要为解决此错误开放所有写权限，或把运行不可信 PR 代码的事件直接改为 pull_request_target。", "不要打印令牌或完整认证请求头。"],
+    "sources": [
+      {"title": "GitHub Docs — Troubleshooting the REST API", "url": "https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api#resource-not-accessible"},
+      {"title": "GitHub Docs — Workflow syntax / permissions", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions"},
+      {"title": "GitHub Docs — Use GITHUB_TOKEN for authentication", "url": "https://docs.github.com/en/actions/tutorials/authenticate-with-github_token"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "github-token", "403", "最小权限", "fork"]
+  },
+  {
+    "id": "github-actions-process-exit-code-one",
+    "category": "ci",
+    "tool": "GitHub Actions",
+    "error": "Process completed with exit code 1.",
+    "aliases": ["The process exited with code 1", "GitHub Actions exit code 1"],
+    "summary": "这只是步骤返回失败状态的摘要，不能据此判断是依赖、测试、权限还是脚本错误。真正的线索通常在同一步骤更早的日志里。",
+    "causes": [
+      {
+        "when": "测试、构建或第三方 action 运行后失败",
+        "reason": "底层工具返回了非零状态；退出码 1 没有跨工具通用的根因含义。",
+        "check": "展开首个失败步骤，向上寻找第一条具体错误，记录命令、工具版本和工作目录。",
+        "fix": "按底层错误修复，再用相同版本和参数验证；把有多条命令的步骤拆分，便于定位。"
+      },
+      {
+        "when": "Bash 多行脚本或管道在中途停止",
+        "reason": "内置 shell 的失败处理会终止脚本；显式 shell: bash 还会启用 pipefail，管道中较早的命令失败也会使步骤失败。",
+        "check": "检查实际 shell、最后执行到的命令及管道各部分的预期退出码。",
+        "fix": "对确实允许的非零结果显式处理；意外失败则修复命令本身，保留可靠的失败传播。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "读取某次运行的失败步骤日志",
+        "language": "bash",
+        "code": "# 替换 OWNER/REPO 和 RUN_ID；需已安装并认证 GitHub CLI\ngh run view RUN_ID --repo OWNER/REPO --log-failed",
+        "kind": "diagnostic",
+        "note": "仅查询已有日志。分享输出前检查是否含项目敏感信息。"
+      }
+    ],
+    "cautions": ["不要用 continue-on-error 或在命令末尾追加 || true 掩盖尚未解释的失败。", "不要直接对包含凭据的脚本启用 set -x，也不要输出整个环境变量集合。"],
+    "sources": [
+      {"title": "GitHub Docs — Setting exit codes for actions", "url": "https://docs.github.com/en/actions/how-tos/create-and-publish-actions/set-exit-codes"},
+      {"title": "GitHub Docs — Using workflow run logs", "url": "https://docs.github.com/en/actions/how-tos/monitor-workflows/use-workflow-run-logs"},
+      {"title": "GitHub Docs — Workflow syntax / shell exit codes", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#exit-codes-and-error-action-preference"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "exit-code", "日志", "bash", "pipefail"]
+  },
+  {
+    "id": "github-actions-secrets-in-if",
+    "category": "ci",
+    "tool": "GitHub Actions expressions",
+    "error": "Unrecognized named-value: 'secrets'. Located at position 1 within expression",
+    "aliases": ["Invalid workflow file secrets if", "secrets cannot be directly referenced in if"],
+    "summary": "在 if 条件中直接引用 secrets 会遇到上下文限制。若要按 secret 是否存在来决定步骤是否运行，可先把它映射到作业环境变量。",
+    "causes": [
+      {
+        "when": "步骤 if 写成 secrets.DEPLOY_TOKEN != ''",
+        "reason": "secrets 上下文不能直接用于 if 条件。",
+        "check": "定位报错的 YAML 行，确认这是步骤级 if，而非 action 的 with 或 env。",
+        "fix": "在该作业 env 中映射 secret，然后在步骤 if 中判断 env 对应项。"
+      },
+      {
+        "when": "将同样的判断移到了 jobs.<job_id>.if 后仍无效",
+        "reason": "作业级 if 与步骤级 if 可用的上下文不同；作业环境变量的方案不能直接搬到作业级判断。",
+        "check": "按 Contexts reference 对照该 YAML 键允许的上下文。",
+        "fix": "将 secret 存在性判断放到步骤级；作业调度条件使用该层支持的 inputs、vars 等非敏感配置。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "在步骤级条件中判断 secret 是否可用",
+        "language": "yaml",
+        "code": "# 放入已有 jobs.<job_id>；DEPLOY_TOKEN 是需自行配置的 secret 名\nenv:\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}\nsteps:\n  - name: Check deploy eligibility\n    if: ${{ env.DEPLOY_TOKEN != '' }}\n    run: echo 'Credential is available for this step.'",
+        "kind": "fix",
+        "note": "只输出是否执行到此步骤，不输出凭据值。实际部署步骤仍需自行接入。"
+      }
+    ],
+    "cautions": ["本条针对报错中明确命名 secrets 的情形；其他 named-value 需要分别检查上下文和拼写。", "语法修好后 secret 仍可能因 fork、环境或组织策略不可用；空字符串不等于密码错误。"],
+    "sources": [
+      {"title": "GitHub Docs — Workflow syntax / Using secrets", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#example-using-secrets"},
+      {"title": "GitHub Docs — Contexts reference", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "yaml", "expressions", "secrets", "if"]
+  },
+  {
+    "id": "github-actions-local-action-metadata-missing",
+    "category": "ci",
+    "tool": "GitHub Actions runner",
+    "error": "Can't find 'action.yml', 'action.yaml' or 'Dockerfile' under 'PATH'. Did you forget to run actions/checkout before running your local action?",
+    "aliases": ["local action action.yml not found", "本地 action 找不到元数据文件"],
+    "summary": "runner 在指定的本地 action 目录中没有找到可加载的定义。提示中的 checkout 只是常见原因，还要检查路径、大小写以及是否把 workflow 当成 action 调用。",
+    "causes": [
+      {
+        "when": "steps.uses 使用 ./ 路径，前面没有检出仓库",
+        "reason": "./ 引用依赖 runner 工作区中的实际文件，而工作区尚未包含 action 源码。",
+        "check": "查看步骤顺序和 checkout 的 path 输入，确认目标目录实际位于工作区中的何处。",
+        "fix": "先检出包含 action 的仓库，再让 uses 指向实际检出目录下的 action 文件夹。"
+      },
+      {
+        "when": "已经 checkout 但仍报错",
+        "reason": "目录拼写或大小写不符、元数据未提交，或者路径指向的是 .github/workflows 中的可复用工作流。",
+        "check": "检查报错给出的完整目录，以及当前提交中是否有 action.yml、action.yaml 或 Dockerfile。",
+        "fix": "修正目录或提交 action 定义；若目标是可复用工作流，改在 jobs.<job_id>.uses 中按 workflow 语法调用。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "检查当前提交包含的 action 定义",
+        "language": "bash",
+        "code": "# 在已 checkout 的工作区运行；替换示例目录\ngit ls-files -- .github/actions/my-action\nls -la -- .github/actions/my-action",
+        "kind": "diagnostic",
+        "note": "my-action 是占位目录名。uses 指向目录，不是 action.yml 文件本身。"
+      }
+    ],
+    "cautions": ["本条限定 ./ 本地路径引用；远程 action 下载失败要另外检查仓库访问和 ref。", "不要靠复制任意 Dockerfile 到目录中来绕过错误；它必须是该 action 的有效定义。"],
+    "sources": [
+      {"title": "actions/runner — ActionManager.cs", "url": "https://github.com/actions/runner/blob/main/src/Runner.Worker/ActionManager.cs"},
+      {"title": "GitHub Docs — Find and customize actions", "url": "https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/find-and-customize-actions#adding-an-action-from-the-same-repository"},
+      {"title": "GitHub Docs — Reuse workflows", "url": "https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows#calling-a-reusable-workflow"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "local-action", "checkout", "action-yml", "路径"]
+  },
+  {
+    "id": "setup-node-cache-lockfile-not-found",
+    "category": "ci",
+    "tool": "actions/setup-node",
+    "error": "Some specified paths were not resolved, unable to cache dependencies.",
+    "aliases": ["Dependencies lock file is not found", "setup-node cache-dependency-path 找不到锁文件"],
+    "summary": "setup-node 无法从锁文件生成依赖缓存键。这通常与检出顺序或 cache-dependency-path 有关，和首次运行时正常的 cache miss 不同。",
+    "causes": [
+      {
+        "when": "开启缓存后，在 checkout 之前执行 setup-node",
+        "reason": "生成缓存键时锁文件还不在工作区中。",
+        "check": "确认 checkout 是否成功，且先于启用缓存的 setup-node 步骤执行。",
+        "fix": "把 checkout 放到该步骤前；若源码由其他步骤生成，确保锁文件先存在。"
+      },
+      {
+        "when": "项目在子目录，或显式配置了 cache-dependency-path",
+        "reason": "默认查找仓库根目录的锁文件；自定义路径或通配符没有匹配到工作区中的文件。",
+        "check": "对照已提交文件、路径大小写和 checkout 的 path；run 步骤的 working-directory 不会重定义 action 输入路径。",
+        "fix": "把 cache-dependency-path 指向工作区内真实的锁文件；在本地按项目包管理器生成并提交应有的锁文件。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "确认检出的锁文件位置",
+        "language": "bash",
+        "code": "# 在 checkout 后运行\npwd\ngit ls-files '*package-lock.json' '*npm-shrinkwrap.json' '*yarn.lock' '*pnpm-lock.yaml'",
+        "kind": "diagnostic",
+        "note": "只列已被 Git 跟踪的锁文件；未提交或动态生成的文件需另查。"
+      },
+      {
+        "label": "修正 setup-node 的子目录锁文件输入",
+        "language": "yaml",
+        "code": "# 合并到已有 setup-node 步骤的 with 中；web 为占位子目录\nwith:\n  cache: npm\n  cache-dependency-path: web/package-lock.json",
+        "kind": "fix",
+        "note": "需先 checkout，且该文件确实存在；包管理器和锁文件应与项目一致。"
+      }
+    ],
+    "cautions": ["不要为消除此错误删除项目锁文件或临时伪造空锁文件。", "setup-node 缓存的是包管理器数据，并不缓存 node_modules，也不替代依赖安装。", "较新版本可能自动开启 npm 缓存；应检查实际 action 版本和输入。"],
+    "sources": [
+      {"title": "actions/setup-node — Caching global packages data", "url": "https://github.com/actions/setup-node#caching-global-packages-data"},
+      {"title": "actions/setup-node — cache-restore.ts", "url": "https://github.com/actions/setup-node/blob/main/src/cache-restore.ts"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "setup-node", "cache", "lockfile", "monorepo"]
+  },
+  {
+    "id": "upload-artifact-name-conflict",
+    "category": "ci",
+    "tool": "actions/upload-artifact v4+",
+    "error": "Failed to CreateArtifact: Received non-retryable error: Failed request: (409) Conflict: an artifact with this name already exists on the workflow run",
+    "aliases": ["artifact with this name already exists", "upload-artifact 409 Conflict"],
+    "summary": "同一次 workflow run 中重复创建了同名 artifact。v4 及其后的实现不支持把不同上传步骤当作对同一 artifact 的追加写入。",
+    "causes": [
+      {
+        "when": "多个步骤或作业都上传且没有设置 name",
+        "reason": "它们默认都使用 artifact 这个名称；即使上传的文件名不同也会冲突。",
+        "check": "检查同次运行中所有上传步骤的 name，以及先前已成功创建的 artifact。",
+        "fix": "合并文件后仅上传一次，或给每次上传分配不同且稳定的名称。"
+      },
+      {
+        "when": "matrix 中每个组合都用同一个 name",
+        "reason": "各矩阵作业并行创建了相同的 artifact 名。",
+        "check": "展开矩阵维度，确认每个有效组合是否能得到唯一名称。",
+        "fix": "把区分组合的 matrix 维度加入 name；下载端同步使用新名称。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "给矩阵上传设置唯一名称",
+        "language": "yaml",
+        "code": "# 合并到已有 upload-artifact 步骤的 with；要求矩阵含 os 和 node\nwith:\n  name: build-${{ matrix.os }}-node-${{ matrix.node }}\n  path: dist/",
+        "kind": "fix",
+        "note": "这是片段；请替换矩阵键与产物路径，并确保其他维度也不会产生重名。"
+      }
+    ],
+    "cautions": ["不要把 overwrite: true 当成并行合并方案；它会删除并替换已有 artifact。", "本条示例适用于默认归档上传；archive: false 等模式应查实际版本的名称规则。"],
+    "sources": [
+      {"title": "actions/upload-artifact — (Not) Uploading to the same artifact", "url": "https://github.com/actions/upload-artifact#not-uploading-to-the-same-artifact"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "artifact", "409", "matrix", "命名冲突"]
+  },
+  {
+    "id": "github-actions-artifact-v3-retired",
+    "category": "ci",
+    "tool": "GitHub.com Actions artifact actions",
+    "error": "This request has been automatically failed because it uses a deprecated version of actions/upload-artifact: v3",
+    "aliases": ["Missing download info for actions/upload-artifact@v3", "actions/download-artifact@v3 deprecated", "artifact v3 已退役"],
+    "summary": "GitHub.com 已停止接受旧版 artifact action，仓库中的旧 tag 仍存在也不代表还能运行。需要按迁移说明更新上传端与下载端。",
+    "causes": [
+      {
+        "when": "工作流显式使用 upload-artifact@v3 或 download-artifact@v3",
+        "reason": "运行引用了服务端已经退役的 artifact action 版本。",
+        "check": "搜索本仓库 workflow、复合 action 和被调用的工作流，确认是哪一层仍引用 v3。",
+        "fix": "在 GitHub.com 上迁移到受支持的 v4 或更高版本，并检查名称、不可变 artifact 和下载兼容性变化。"
+      },
+      {
+        "when": "本仓库已升级，但第三方 action 或复用工作流仍触发错误",
+        "reason": "间接依赖内部还在使用旧 artifact action。",
+        "check": "从 Prepare actions 日志定位实际引用，再检查依赖仓库对应 ref 的定义。",
+        "fix": "选用已完成迁移的依赖版本；没有兼容版本时提交上游修复或采用经过审查的替代实现。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "查找本仓库显式的旧版 artifact 引用",
+        "language": "bash",
+        "code": "git grep -n -E 'actions/(upload|download)-artifact@v[123]([[:space:]]|$)' -- '*.yml' '*.yaml'",
+        "kind": "diagnostic",
+        "note": "只检查已跟踪的本仓库 YAML；不能发现远程依赖内部的引用。无匹配时 git grep 返回 1。"
+      }
+    ],
+    "cautions": ["本条退役结论针对 GitHub.com。GitHub Enterprise Server 的兼容矩阵不同，不能直接照搬 v4+。", "Missing download info 也可能有其他原因；只有确认引用退役版本时才用本条处理。", "仅替换版本号不代表迁移完成，需核对上传与下载行为及 runner 兼容要求。"],
+    "sources": [
+      {"title": "GitHub Changelog — Deprecation notice: v3 of the artifact actions", "url": "https://github.blog/changelog/2024-04-16-deprecation-notice-v3-of-the-artifact-actions/"},
+      {"title": "actions/upload-artifact — Documentation and GHES support", "url": "https://github.com/actions/upload-artifact"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "artifact", "deprecated", "迁移", "ghes"]
+  },
+  {
+    "id": "github-actions-required-input-missing",
+    "category": "ci",
+    "tool": "GitHub Actions / @actions/core",
+    "error": "Input required and not supplied: INPUT_NAME",
+    "aliases": ["Input required and not supplied: token", "Input required and not supplied: github-token", "action 必填输入为空"],
+    "summary": "action 读取某个必填输入时拿到了空值。先看冒号后的实际输入名，以及该 action 对应版本的定义。",
+    "causes": [
+      {
+        "when": "with 缺少参数，或参数名与 action 文档不符",
+        "reason": "所需输入未被传给 action；相似名称的参数不能互相替代。",
+        "check": "比对实际引用 ref 的 README、action.yml 和报错中的输入名，确认 with 缩进归属于正确步骤。",
+        "fix": "按该版本的输入名补齐 with 值；普通配置可直接传值，凭据应从 secret 引用。"
+      },
+      {
+        "when": "with 已引用 secret，但运行时仍为空",
+        "reason": "secret 未配置、当前环境或仓库无权使用，或触发事件不提供该 secret；可复用工作流也不会自动收到调用方 secrets。",
+        "check": "检查 secret 名称、仓库/环境/组织可用范围、触发来源和显式传递关系，只检查存在性。",
+        "fix": "修正 secret 的可用范围或显式传递；不可信 PR 中缺失凭据时跳过特权步骤。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "只验证输入凭据是否非空",
+        "language": "yaml",
+        "code": "# 放在使用该 secret 的 action 前；替换 EXAMPLE_TOKEN\n- name: Check required credential\n  shell: bash\n  env:\n    REQUIRED_INPUT: ${{ secrets.EXAMPLE_TOKEN }}\n  run: |\n    if [ -z \"$REQUIRED_INPUT\" ]; then\n      echo 'Required credential is unavailable for this run.' >&2\n      exit 1\n    fi",
+        "kind": "diagnostic",
+        "note": "不打印 secret。检查非空不能证明其有效或拥有所需权限。"
+      }
+    ],
+    "cautions": ["INPUT_NAME 是占位符，必须以实际错误里的名字为准。", "不要为让输入变成非空而填入随意字符串，也不要在日志中回显凭据。", "同样的提示可能由 action 自己生成，具体必填规则仍以其实现为准。"],
+    "sources": [
+      {"title": "actions/toolkit — core.getInput implementation", "url": "https://github.com/actions/toolkit/blob/main/packages/core/src/core.ts"},
+      {"title": "GitHub Docs — Using secrets in GitHub Actions", "url": "https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["github-actions", "inputs", "secrets", "with", "配置"]
+  },
+  {
+    "id": "github-ssh-permission-denied-publickey",
+    "category": "permissions",
+    "tool": "Git / OpenSSH / GitHub",
+    "error": "git@github.com: Permission denied (publickey).",
+    "aliases": ["Permission denied (publickey)", "fatal: Could not read from remote repository."],
+    "summary": "GitHub 的 SSH 认证没有接受本次连接提供的密钥。先确认连接身份和被提供的公钥，不要只凭此信息判断仓库不存在。",
+    "causes": [
+      {
+        "when": "remote 写成个人用户名@github.com，或连到了错误主机",
+        "reason": "GitHub 的 SSH Git 连接使用 git 用户；登录名不是 GitHub 个人用户名。",
+        "check": "核对 clone URL、SSH Host 别名和实际连接目标。",
+        "fix": "从目标仓库页面复制正确 SSH URL，修正 remote 或 SSH 配置。"
+      },
+      {
+        "when": "没有提供正确密钥，或密钥尚未关联目标账户",
+        "reason": "agent 未加载预期密钥、客户端选错 identity，或 GitHub 账户没有对应公钥。",
+        "check": "查看 agent 的公钥指纹及 SSH 诊断中的 Offering public key，并与 GitHub 账户中的公钥指纹核对。",
+        "fix": "加载或显式选择正确私钥；仅将对应公钥添加到有访问权的账户。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "检查 agent 已加载的公钥指纹",
+        "language": "bash",
+        "code": "ssh-add -l -E sha256",
+        "kind": "diagnostic",
+        "note": "只显示指纹，不显示私钥；提示没有 agent 与没有密钥是不同状态。"
+      },
+      {
+        "label": "检查向 GitHub 提供的身份",
+        "language": "bash",
+        "code": "ssh -vT git@github.com",
+        "kind": "diagnostic",
+        "note": "主机若尚未受信任，应先核对 GitHub 官方主机指纹。分享诊断日志前隐藏用户名、路径和地址。"
+      }
+    ],
+    "cautions": ["不要用 sudo git 改变运行身份来试图修复；它可能选用另一套密钥。", "不要上传私钥，也不要关闭 SSH 主机校验。", "成功认证只证明账户身份；仓库授权还需单独检查。GitHub 不提供 shell，成功测试也可能返回非零退出码。"],
+    "sources": [
+      {"title": "GitHub Docs — Error: Permission denied (publickey)", "url": "https://docs.github.com/en/authentication/troubleshooting-ssh/error-permission-denied-publickey"},
+      {"title": "GitHub Docs — Testing your SSH connection", "url": "https://docs.github.com/en/authentication/connecting-to-github-with-ssh/testing-your-ssh-connection"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["git", "ssh", "github", "publickey", "认证"]
+  },
+  {
+    "id": "ssh-private-key-permissions-too-open",
+    "category": "permissions",
+    "tool": "OpenSSH on Linux / macOS",
+    "error": "WARNING: UNPROTECTED PRIVATE KEY FILE!",
+    "aliases": ["Permissions 0644 for 'KEY_FILE' are too open.", "This private key will be ignored.", "Load key: bad permissions"],
+    "summary": "OpenSSH 发现私钥可被其他用户访问，因而拒绝使用它。应收紧具体私钥文件的访问权限，并确认它归当前用户所有。",
+    "causes": [
+      {
+        "when": "私钥由复制、解压或共享目录导入后报错",
+        "reason": "文件保留了组用户或其他用户可访问的权限位。",
+        "check": "查看报错中的具体私钥路径、所有者和权限；不要把 .pub 公钥当成私钥处理。",
+        "fix": "对自己拥有的该私钥设置仅自己可读写的权限，然后重新认证。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "查看具体私钥文件的权限",
+        "language": "bash",
+        "code": "# /absolute/path/to/KEY_FILE 是需替换的私钥路径\nls -l -- /absolute/path/to/KEY_FILE",
+        "kind": "diagnostic",
+        "note": "只查看元数据，不要 cat 私钥。"
+      },
+      {
+        "label": "限制自己拥有的单个私钥文件",
+        "language": "bash",
+        "code": "# 确认路径、所有者和文件系统支持 Unix 权限后执行\nchmod 600 -- /absolute/path/to/KEY_FILE",
+        "kind": "fix",
+        "note": "仅限当前用户拥有的私钥；不递归修改目录，不处理 Windows 原生 ACL。"
+      }
+    ],
+    "cautions": ["不要给整个 .ssh 目录递归套用 600；目录需要搜索权限。", "私钥若已经泄露给他人，收紧权限无法撤销泄露，应撤销并轮换密钥。", "Windows 原生 OpenSSH 的 ACL 排查不同，本条 chmod 示例仅适用于 Unix 权限环境。"],
+    "sources": [
+      {"title": "OpenBSD OpenSSH manual — ssh FILES", "url": "https://man.openbsd.org/ssh#FILES"},
+      {"title": "OpenSSH portable — authfile.c permission check", "url": "https://github.com/openssh/openssh-portable/blob/master/authfile.c"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["ssh", "私钥", "chmod", "linux", "macos"]
+  },
+  {
+    "id": "github-repository-not-found",
+    "category": "permissions",
+    "tool": "Git / GitHub",
+    "error": "remote: Repository not found.",
+    "aliases": ["ERROR: Repository not found.", "fatal: repository 'https://github.com/OWNER/REPO.git/' not found"],
+    "summary": "目标仓库可能不存在，也可能是当前 Git 身份无权访问。私有仓库的认证问题同样会表现为找不到仓库。",
+    "causes": [
+      {
+        "when": "刚设置 remote、仓库已改名或转移",
+        "reason": "owner、仓库名或服务器地址不正确。",
+        "check": "用有权访问的账户打开仓库页面，比对页面提供的 clone URL 与本地 remote。",
+        "fix": "修正 remote 的地址；新仓库需确认已真正创建。"
+      },
+      {
+        "when": "浏览器可见私有仓库，但 Git 无法读取",
+        "reason": "浏览器身份不一定等于 Git 身份；SSH 密钥、缓存凭据或令牌所代表的账户可能不同。",
+        "check": "按 HTTPS/SSH 分别检查实际账户、令牌仓库范围和仓库成员权限；组织资源还要核查 SSO 授权。",
+        "fix": "使用有仓库访问权的身份，并为正确的凭据完成所需授权。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "用当前 Git 凭据只读验证目标仓库",
+        "language": "bash",
+        "code": "# 替换 OWNER/REPO；需要 SSH 时改用仓库页面提供的 SSH URL\ngit ls-remote https://github.com/OWNER/REPO.git HEAD",
+        "kind": "diagnostic",
+        "note": "不修改仓库；可能调用已配置的 credential helper 或交互式认证。不要把 token 写入 URL。"
+      }
+    ],
+    "cautions": ["公开仓库可匿名读取；读取成功不能证明你拥有推送权限。", "不要因为找不到私有仓库就修改其可见性；先核对身份与授权。", "复制或分享 remote URL 前检查其中是否嵌入凭据。"],
+    "sources": [
+      {"title": "GitHub Docs — Troubleshooting cloning errors", "url": "https://docs.github.com/en/repositories/creating-and-managing-repositories/troubleshooting-cloning-errors#error-repository-not-found"},
+      {"title": "GitHub Docs — About authentication to GitHub", "url": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github#authorizing-for-saml-single-sign-on"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["git", "github", "repository-not-found", "私有仓库", "认证"]
+  },
+  {
+    "id": "github-https-authentication-failed",
+    "category": "permissions",
+    "tool": "Git HTTPS / GitHub.com",
+    "error": "fatal: Authentication failed for 'https://github.com/OWNER/REPO.git/'",
+    "aliases": ["Support for password authentication was removed", "Invalid username or token", "GitHub HTTPS authentication failed"],
+    "summary": "GitHub.com 没有接受本次 HTTPS Git 凭据。账户密码已不能用于 Git 认证，还应核对缓存凭据和令牌授权。",
+    "causes": [
+      {
+        "when": "在 Git 的 Password 提示中输入了 GitHub 账户密码",
+        "reason": "GitHub.com 的 HTTPS Git 操作需要令牌或受支持的凭据管理器登录。",
+        "check": "确认 remote 使用 HTTPS，且输入的是账户密码还是令牌；不要把网页登录成功当作 Git 认证成功。",
+        "fix": "使用 Git Credential Manager、GitHub CLI 的受支持登录方式，或在密码提示中输入权限最小的 PAT。"
+      },
+      {
+        "when": "已经使用令牌，但仍失败或一直复用旧账户",
+        "reason": "credential helper 可能缓存旧凭据；也可能令牌已失效、仓库范围或组织授权不满足要求。",
+        "check": "检查系统凭据管理器中的 GitHub 账户，以及令牌有效期、目标仓库范围、所需权限和 SSO 状态。",
+        "fix": "通过所用凭据管理器更新对应账户的条目；必要时换用有效且仅授权目标仓库的令牌。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "使用正常凭据流程只读验证 HTTPS 访问",
+        "language": "bash",
+        "code": "# 替换 OWNER/REPO；不要在 URL 中拼接用户名或 token\ngit ls-remote https://github.com/OWNER/REPO.git HEAD",
+        "kind": "diagnostic",
+        "note": "可能使用缓存凭据；若验证了错误账户，应先在对应凭据管理器中修正。"
+      }
+    ],
+    "cautions": ["不要把 PAT 写入 remote URL、脚本、终端历史或截图。", "本条适用于 GitHub.com HTTPS；其他 Git 服务的认证策略不同。", "认证错误、仓库读取权限和分支写入规则是不同层次的问题；更换令牌不保证能推送。"],
+    "sources": [
+      {"title": "GitHub Docs — About authentication / HTTPS", "url": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github#https"},
+      {"title": "GitHub Docs — Troubleshooting HTTPS cloning errors", "url": "https://docs.github.com/en/repositories/creating-and-managing-repositories/troubleshooting-cloning-errors#https-cloning-errors"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["git", "github", "https", "pat", "credential-helper"]
+  },
+  {
+    "id": "git-dubious-ownership",
+    "category": "permissions",
+    "tool": "Git",
+    "error": "fatal: detected dubious ownership in repository at 'PATH'",
+    "aliases": ["detected dubious ownership", "unsafe repository is owned by someone else", "safe.directory"],
+    "summary": "Git 发现仓库所有者与当前运行用户不一致，因此阻止读取配置和执行钩子。先确认仓库来源、实际 UID 与所有权，再决定是否信任这一具体目录。",
+    "causes": [
+      {
+        "when": "仓库来自其他账户、共享目录或容器挂载",
+        "reason": "仓库所有者与当前 Git 进程身份不同，触发了安全检查。",
+        "check": "查看当前用户、仓库及 .git 的所有者；容器内外需比对数值 UID/GID，而不只看用户名。",
+        "fix": "优先使用仓库预期的运行身份；确属可信且有意共享的仓库，才将其精确绝对路径加入当前用户的 safe.directory。"
+      },
+      {
+        "when": "平时正常，换用 sudo 或另一账户后报错",
+        "reason": "Git 的运行身份和读取到的受保护配置发生了变化。",
+        "check": "确认本次运行用户和 safe.directory 的配置来源；不要假设一个账户的 global 配置会被其他账户读取。",
+        "fix": "恢复正确的普通用户执行方式；若所有权意外改变，先由目录维护者确认范围再处理。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "检查身份、所有者与已配置的例外",
+        "language": "bash",
+        "code": "# 在 Linux 上运行；替换为实际仓库绝对路径\nid\nls -ldn -- /absolute/path/to/repo /absolute/path/to/repo/.git\ngit config --global --show-origin --get-all safe.directory",
+        "kind": "diagnostic",
+        "note": "没有配置项时 git config 可能返回非零；.git 也可能是指向实际 gitdir 的文件，需按实际布局继续核查。"
+      },
+      {
+        "label": "仅信任已核实的具体共享仓库",
+        "language": "bash",
+        "code": "# 仅在已核实来源、内容及共享意图后执行\ngit config --global --add safe.directory /absolute/path/to/repo",
+        "kind": "fix",
+        "note": "绝对路径是占位符；此配置是信任例外，不会修改目录所有权或补齐文件访问权限。"
+      }
+    ],
+    "cautions": ["不要设置 safe.directory '*' 或宽泛目录通配符来关闭所有仓库的检查。", "不要对工作区、主目录或挂载盘整体执行递归 chown。", "不可信仓库不应因为本条提示就获得信任；先由可信用户核查来源与配置。"],
+    "sources": [
+      {"title": "Git documentation — safe.directory", "url": "https://git-scm.com/docs/git-config#Documentation/git-config.txt-safedirectory"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["git", "safe-directory", "ownership", "uid", "容器"]
+  },
+  {
+    "id": "docker-daemon-socket-permission-denied",
+    "category": "permissions",
+    "tool": "Docker Engine on Linux",
+    "error": "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock",
+    "aliases": ["dial unix /var/run/docker.sock: connect: permission denied", "Docker socket EACCES"],
+    "summary": "当前进程没有访问所选 Docker Unix socket 的权限。本条主要针对 Linux 的传统 rootful Engine；Rootless 和 Docker Desktop 的 socket 位置及授权方式可能不同。",
+    "causes": [
+      {
+        "when": "CLI 指向本机 rootful Engine 的 /var/run/docker.sock",
+        "reason": "当前用户未获得 socket 所属组的访问授权，或刚变更组成员关系但会话尚未更新。",
+        "check": "比对 socket 的所有者、所属组与当前进程的 id 输出；确认管理员是否已授权 Docker 使用。",
+        "fix": "按主机策略由管理员配置所需组授权并重新登录，或采用 Docker 官方 Rootless 方案。"
+      },
+      {
+        "when": "预期使用 Rootless、Desktop 或远程 Engine，却连接到 rootful socket",
+        "reason": "Docker context 或环境选择指向了错误端点。",
+        "check": "检查当前 context 及其 Docker Host，并核对 DOCKER_HOST/DOCKER_CONTEXT 是否另有覆盖。",
+        "fix": "选择预期且已获授权的 context，修正不需要的环境覆盖；不要通过放宽错误 socket 的权限来解决。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "检查本机 socket 与当前进程组",
+        "language": "bash",
+        "code": "id\nls -l -- /var/run/docker.sock",
+        "kind": "diagnostic",
+        "note": "仅适用于错误明确指向此路径的 Linux 主机；不存在时应先核对端点，而非创建文件。"
+      },
+      {
+        "label": "确认当前 Docker context 的端点",
+        "language": "bash",
+        "code": "docker context show\ndocker context inspect --format '{{.Endpoints.docker.Host}}'",
+        "kind": "diagnostic",
+        "note": "环境覆盖也会影响连接；只核对相关变量，不要输出整个环境。"
+      }
+    ],
+    "cautions": ["docker 组通常具有主机 root 级能力，加入该组是授权决定，不是普通的无害权限修补。", "不要 chmod 666/777 Docker socket，不要为了连通而开放未认证的 daemon TCP 端口。", "Cannot connect to the Docker daemon 也可能是服务未启动；与明确的 permission denied 分开排查。"],
+    "sources": [
+      {"title": "Docker Docs — Linux post-installation steps", "url": "https://docs.docker.com/engine/install/linux-postinstall/"},
+      {"title": "Docker Docs — Docker contexts", "url": "https://docs.docker.com/engine/manage-resources/contexts/"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["docker", "linux", "socket", "docker-group", "rootless"]
+  },
+  {
+    "id": "linux-script-execution-permission-denied",
+    "category": "permissions",
+    "tool": "Linux shell / execve",
+    "error": "bash: ./scripts/build.sh: Permission denied",
+    "aliases": ["./script.sh: Permission denied", "exec: permission denied", "execve EACCES"],
+    "summary": "Linux 拒绝执行该路径。常见原因包括缺少执行位、父目录不可搜索或挂载了 noexec，不能统一用提高权限解决。",
+    "causes": [
+      {
+        "when": "文件存在且可读，但对应身份没有执行权限",
+        "reason": "脚本缺少适用于当前用户的执行位。",
+        "check": "查看当前身份和 ls -l 中的文件权限，确认该脚本确实应当被执行且由自己维护。",
+        "fix": "只给自己拥有的目标脚本增加必要执行位，并按项目方式保留该权限变更。"
+      },
+      {
+        "when": "文件有执行位，仍无法执行",
+        "reason": "路径某级目录缺少搜索权限，或脚本解释器自身不可访问/执行。",
+        "check": "逐级检查路径权限与 shebang 指向的解释器。",
+        "fix": "由目录维护者补齐必要的目录搜索/解释器访问权限，或选择已授权的运行路径。"
+      },
+      {
+        "when": "同一文件换到某个挂载目录后才失败",
+        "reason": "文件系统使用 noexec 挂载选项，执行位不能覆盖此限制。",
+        "check": "查看目标路径所在挂载点的实际选项。",
+        "fix": "在组织允许执行代码的位置构建和运行；如确需变更挂载策略，由管理员按用途调整。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "检查执行身份与脚本权限",
+        "language": "bash",
+        "code": "# scripts/build.sh 为需替换的示例路径\nid\nls -l -- ./scripts/build.sh",
+        "kind": "diagnostic",
+        "note": "适用于 Linux；先确认文件内容和来源可信。"
+      },
+      {
+        "label": "检查父目录权限和挂载选项",
+        "language": "bash",
+        "code": "namei -l -- ./scripts/build.sh\nfindmnt -T ./scripts/build.sh -o TARGET,OPTIONS",
+        "kind": "diagnostic",
+        "note": "需系统提供 namei 和 findmnt；注意逐级目录的 x/search 权限与 noexec。"
+      },
+      {
+        "label": "仅为自己维护的脚本补执行位",
+        "language": "bash",
+        "code": "# 仅当已确认缺少 owner 执行位，且自己拥有此脚本时\nchmod u+x -- ./scripts/build.sh",
+        "kind": "fix",
+        "note": "只解决该文件的 owner 执行位；不解决 noexec、目录权限、ACL 或安全模块拒绝。"
+      }
+    ],
+    "cautions": ["不要 chmod -R 777、递归改变所有者，或默认改用 sudo 运行未知脚本。", "显式 bash script.sh 仍会执行脚本内容，不应当用作绕过组织 noexec 策略的建议。", "若普通权限和挂载选项均正常，继续查 ACL、SELinux/AppArmor 等策略日志；本条不穷尽所有 EACCES 来源。"],
+    "sources": [
+      {"title": "Linux man-pages — execve(2) EACCES", "url": "https://man7.org/linux/man-pages/man2/execve.2.html"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["linux", "bash", "chmod", "noexec", "eacces"]
+  },
+  {
+    "id": "docker-read-only-filesystem",
+    "category": "permissions",
+    "tool": "Docker / Linux filesystem",
+    "error": "Read-only file system",
+    "aliases": ["EROFS: read-only file system", "touch: cannot touch: Read-only file system", "容器写入只读文件系统"],
+    "summary": "应用试图写入只读文件系统；普通 chmod 或更换文件所有者不能让只读挂载变成可写。Docker 中应先分辨是单个挂载只读，还是容器根文件系统只读。",
+    "causes": [
+      {
+        "when": "失败路径位于 bind mount 中",
+        "reason": "该挂载可能设置了 readonly/:ro，应用却把配置或输出写入其中。",
+        "check": "在 docker inspect 的 Mounts 中匹配实际 Destination，并检查 RW 是否为 false。",
+        "fix": "优先把输出改到专门的可写目录；确实需要写回主机且已授权时，仅调整该挂载的只读配置并按部署流程应用。"
+      },
+      {
+        "when": "多个根文件系统路径都无法写入",
+        "reason": "容器可能通过 --read-only 或等价配置启用了只读根文件系统。",
+        "check": "检查 HostConfig.ReadonlyRootfs 和部署定义，并确认失败路径没有独立可写挂载。",
+        "fix": "保留只读根文件系统，为必要的持久数据配置 volume，为临时数据配置适合的 tmpfs，并修改应用写入位置。"
+      }
+    ],
+    "commands": [
+      {
+        "label": "检查容器挂载与根文件系统模式",
+        "language": "bash",
+        "code": "# CONTAINER_NAME 是需替换的容器名或 ID\ndocker inspect --format '{{json .Mounts}}' CONTAINER_NAME\ndocker inspect --format '{{.HostConfig.ReadonlyRootfs}}' CONTAINER_NAME",
+        "kind": "diagnostic",
+        "note": "只选择所需字段，避免完整 inspect 输出环境中的凭据；比较挂载目标与实际失败路径。"
+      }
+    ],
+    "cautions": ["不要为了让应用启动就移除所有只读保护；写权限应限定到必要路径。", "tmpfs 中的数据不持久化，不适合需要保留的数据。", "若 Docker 配置显示可写，仍需检查主机底层文件系统是否只读；主机因故障转为只读时不要盲目强制重新挂载。", "本条针对 EROFS；Permission denied/EACCES 应按身份、文件权限和安全策略另行诊断。"],
+    "sources": [
+      {"title": "Docker Docs — Bind mounts / Read-only bind mount", "url": "https://docs.docker.com/engine/storage/bind-mounts/#use-a-read-only-bind-mount"},
+      {"title": "Docker Docs — docker run / --read-only", "url": "https://docs.docker.com/reference/cli/docker/container/run/#mount-volume-read-only---read-only"},
+      {"title": "Linux man-pages — open(2) EROFS", "url": "https://man7.org/linux/man-pages/man2/open.2.html"}
+    ],
+    "verified_on": "2026-11-05",
+    "verification": "docs-reviewed",
+    "tags": ["docker", "linux", "read-only", "erofs", "bind-mount"]
+  }
+]
