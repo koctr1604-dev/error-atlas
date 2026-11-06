@@ -1,0 +1,30 @@
+name: 补充或纠正报错
+description: 提交具体报错、适用环境和可验证的原因
+title: '[条目] '
+body:
+  - type: textarea
+    id: error
+    attributes:
+      label: 原始报错 / 已有条目 ID
+      description: 先删除 token、私钥、内部域名及个人信息。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境、版本与触发步骤
+    validations:
+      required: true
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: 可能原因、确认方法、修复结果
+      description: 没有实机复现时请明确标注“仅文档核对”。
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: 官方来源与相关章节
+    validations:
+      required: true
